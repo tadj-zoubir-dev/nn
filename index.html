@@ -140,6 +140,7 @@
           <div class="btns"><button type="button" class="primary" id="bulkAdd">ترجمة وإنشاء البطاقات</button><button type="button" id="clearAll">مسح الكل</button></div>
           <p class="hint">تُترجم الأسماء بمعناها (أعشاب وبهارات وزيوت ومكسرات وغيرها)، والكلمة غير الموجودة في القاموس تُكتب بنطقها الإنجليزي. لتحديد الإنجليزي بنفسك اكتب: الاسم | English</p>
         </div>
+        <div id="limitMsg" class="qstatus none" role="status" aria-live="polite"></div>
         <h3 class="sub">مراجعة الأسماء <span id="nameCount"></span></h3>
         <div class="search">
           <label for="q">بحث: هل الاسم موجود في القائمة؟</label>
@@ -148,7 +149,7 @@
         </div>
         <div id="rows"></div>
         <button class="add" id="addRow" type="button">+ إضافة اسم</button>
-        <p class="hint">راجع الترجمة قبل الطباعة، وإذا كانت كلمة خاطئة أو غير مترجمة عدّلها في حقلها هنا.</p>
+        <p class="hint">الحد الأقصى 180 اسماً. راجع الترجمة قبل الطباعة، وإذا كانت كلمة خاطئة أو غير مترجمة عدّلها في حقلها هنا.</p>
       </section>
 
       <section class="box">
@@ -240,6 +241,8 @@ const fmt = v => (Math.round(v * 10) / 10).toString().replace(".", "٫");
 
 const $ = s => document.querySelector(s);
 let uid = 0;
+const MAX_NAMES = 180;
+const setLimit = msg => { const el = document.getElementById("limitMsg"); if (el) el.textContent = msg || ""; };
 const state = {
   rows: [
     { id: ++uid, ar: "أحمد بن علي", en: "", auto: true },
@@ -315,6 +318,7 @@ function entries() {
     if (!r.ar.trim() && !r.en.trim()) return;
     out.push({ ar: r.ar, en: r.en });
   });
+  out.length = Math.min(out.length, MAX_NAMES);
   return out;
 }
 
@@ -546,7 +550,8 @@ $("#q").addEventListener("input", applySearch);
 
 function renderRows() {
   const box = $("#rows");
-  $("#nameCount").textContent = state.rows.length ? "(" + state.rows.length + ")" : "";
+  $("#nameCount").textContent = state.rows.length ? `(${state.rows.length} / ${MAX_NAMES})` : "";
+  $("#addRow").disabled = state.rows.length >= MAX_NAMES;
   box.innerHTML = "";
   state.rows.forEach((r, i) => {
     const el = document.createElement("div");
@@ -589,6 +594,7 @@ function renderRows() {
 }
 
 $("#addRow").addEventListener("click", () => {
+  if (state.rows.length >= MAX_NAMES) { setLimit(`وصلت إلى الحد الأقصى: ${MAX_NAMES} اسماً.`); return; }
   state.rows.push({ id: ++uid, ar: "", en: "", auto: true });
   state.focus = state.rows.length - 1;
   renderRows();
@@ -599,19 +605,22 @@ $("#addRow").addEventListener("click", () => {
 });
 
 $("#bulkAdd").addEventListener("click", () => {
-  const lines = $("#bulk").value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (!lines.length) { $("#bulk").focus(); return; }
+  const all = $("#bulk").value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!all.length) { $("#bulk").focus(); return; }
+  const lines = all.slice(0, MAX_NAMES);
   state.rows = lines.map(l => {
     const [ar, en] = l.split("|").map(x => x.trim());
     return { id: ++uid, ar: ar || "", en: en || translit(ar || ""), auto: !en };
   });
   state.focus = 0;
   renderRows(); schedule();
+  setLimit(all.length > MAX_NAMES ? `الحد الأقصى ${MAX_NAMES} اسماً. أُخذت أول ${MAX_NAMES} أسماء وتُجوهل ${all.length - MAX_NAMES}.` : "");
   setTimeout(() => $("#cardImg").scrollIntoView({ behavior: "smooth", block: "center" }), 300);
 });
 $("#clearAll").addEventListener("click", () => {
   state.rows = [{ id: ++uid, ar: "", en: "", auto: true }];
   state.focus = 0;
+  setLimit("");
   renderRows(); schedule();
 });
 
@@ -1517,10 +1526,13 @@ async function handlePdf(file) {
 function useCards(append) {
   const rows = pdfCards.map(c => ({ id: ++uid, ar: c.ar, en: c.en, auto: !!c.auto }));
   const empty = state.rows.length === 1 && !state.rows[0].ar.trim() && !state.rows[0].en.trim();
-  state.rows = append && !empty ? state.rows.concat(rows) : rows;
+  const all = append && !empty ? state.rows.concat(rows) : rows;
+  const cut = all.length - MAX_NAMES;
+  state.rows = all.slice(0, MAX_NAMES);
   if (!append) state.focus = 0;
   if (pdfPerPage && LAYOUTS[pdfPerPage]) { perPage = pdfPerPage; renderLayoutSeg(); }
   renderRows(); schedule();
+  setLimit(cut > 0 ? `الحد الأقصى ${MAX_NAMES} اسماً. أُخذت أول ${MAX_NAMES} أسماء وتُجوهل ${cut}.` : "");
   setPdfStatus(append ? "أُضيفت الأسماء إلى القائمة." : "استُبدلت القائمة بالأسماء المستخرجة.", "ok");
   $("#cardImg").scrollIntoView({ behavior: "smooth", block: "center" });
 }
